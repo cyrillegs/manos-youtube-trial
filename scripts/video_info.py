@@ -9,6 +9,12 @@ import sys
 from urllib.parse import urlparse
 
 
+class VideoInfoError(Exception):
+    def __init__(self, message: str, code: int = 1) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def is_youtube_url(url: str) -> bool:
     try:
         host = urlparse(url).netloc.lower()
@@ -27,8 +33,8 @@ def fail(message: str, code: int = 1) -> None:
 def fetch_metadata(url: str) -> dict:
     try:
         import yt_dlp
-    except ImportError:
-        fail("yt-dlp is not installed. Run: pip install -r requirements.txt")
+    except ImportError as exc:
+        raise VideoInfoError("yt-dlp is not installed. Run: pip install -r requirements.txt") from exc
 
     opts = {
         "quiet": True,
@@ -41,16 +47,18 @@ def fetch_metadata(url: str) -> dict:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except yt_dlp.utils.DownloadError as exc:
-        fail(f"Could not fetch video metadata: {exc}")
-    except Exception as exc:  # noqa: BLE001 — keep CLI output as JSON
-        fail(f"Unexpected error: {exc}")
+        raise VideoInfoError(f"Could not fetch video metadata: {exc}") from exc
+    except VideoInfoError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — keep CLI/API errors as JSON
+        raise VideoInfoError(f"Unexpected error: {exc}") from exc
 
     if not info:
-        fail("yt-dlp returned no metadata")
+        raise VideoInfoError("yt-dlp returned no metadata")
 
     # Playlists / multi-entry results should not slip through.
     if info.get("_type") == "playlist":
-        fail("URL points to a playlist, not a single video")
+        raise VideoInfoError("URL points to a playlist, not a single video")
 
     return {
         "title": info.get("title"),
@@ -72,7 +80,10 @@ def main() -> None:
     if not is_youtube_url(url):
         fail("URL must be a youtube.com or youtu.be link")
 
-    payload = fetch_metadata(url)
+    try:
+        payload = fetch_metadata(url)
+    except VideoInfoError as exc:
+        fail(str(exc), exc.code)
     text = json.dumps(payload, ensure_ascii=False)
 
     if args.out:
