@@ -10,4 +10,4 @@ I would not spawn Python from a Next.js request on the same process. A small wor
 
 ## What broke
 
-PowerShell `curl` sent a broken body (`Request body must be JSON`); a Python `urllib` POST worked. Next.js could not bind port 3000 (already in use) and fell back to 3001. Local yt-dlp returned metadata on the first try, including `/shorts/` URLs. On the Dokploy VPS, YouTube blocked the datacenter IP (`Sign in to confirm you’re not a bot`) for every video, not just Shorts. The extractor now prefers the tv/android player clients so metadata still comes back without cookies.
+PowerShell `curl` sent a broken body (`Request body must be JSON`); a Python `urllib` POST worked. Next.js could not bind port 3000 (already in use) and fell back to 3001. Local yt-dlp returned metadata on the first try, including `/shorts/` URLs. On the Dokploy VPS, YouTube blocked the datacenter IP (`Sign in to confirm you’re not a bot`) for every video, not just Shorts. If yt-dlp is blocked, the API falls back to YouTube’s Android/iOS InnerTube player endpoint, which still returns title, duration, and views without cookies.
