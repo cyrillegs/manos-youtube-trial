@@ -1,0 +1,13 @@
+.git
+.env
+**/.env
+**/node_modules
+**/.next
+**/__pycache__
+*.pyc
+.venv
+venv
+sample.json
+web/README.md
+*.pdf
+discord.txt
