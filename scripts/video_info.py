@@ -41,6 +41,8 @@ def fetch_metadata(url: str) -> dict:
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
+        # Web client is often bot-blocked on VPS IPs; tv/android still return metadata.
+        "extractor_args": {"youtube": {"player_client": ["tv", "android", "web"]}},
     }
 
     try:
