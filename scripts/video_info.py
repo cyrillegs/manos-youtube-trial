@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -49,6 +51,57 @@ def extract_video_id(url: str) -> str | None:
         if len(parts) >= 2 and parts[0] in {"shorts", "embed", "live"}:
             return parts[1]
     return None
+
+
+def parse_iso8601_duration(value: str) -> int | None:
+    match = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", value or "")
+    if not match:
+        return None
+    hours, minutes, seconds = (int(part) if part else 0 for part in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def fetch_via_data_api(video_id: str) -> dict:
+    api_key = os.environ.get("YOUTUBE_API_KEY", "").strip()
+    if not api_key:
+        raise VideoInfoError("YOUTUBE_API_KEY is not set")
+
+    query = urlencode(
+        {
+            "part": "snippet,contentDetails,statistics",
+            "id": video_id,
+            "key": api_key,
+        }
+    )
+    request = Request(
+        f"https://www.googleapis.com/youtube/v3/videos?{query}",
+        headers={"Accept": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode())
+    except HTTPError as exc:
+        detail = exc.read().decode(errors="replace")[:300]
+        raise VideoInfoError(f"YouTube Data API error ({exc.code}): {detail}") from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise VideoInfoError(f"YouTube Data API request failed: {exc}") from exc
+
+    items = payload.get("items") or []
+    if not items:
+        raise VideoInfoError("YouTube Data API returned no video for that URL")
+
+    item = items[0]
+    snippet = item.get("snippet") or {}
+    details = item.get("contentDetails") or {}
+    stats = item.get("statistics") or {}
+    published = (snippet.get("publishedAt") or "")[:10].replace("-", "")
+    views = stats.get("viewCount")
+    return {
+        "title": snippet.get("title"),
+        "duration": parse_iso8601_duration(details.get("duration") or ""),
+        "view_count": int(views) if views is not None and str(views).isdigit() else None,
+        "upload_date": published or None,
+    }
 
 
 def fetch_via_ytdlp(url: str) -> dict:
@@ -141,12 +194,19 @@ def fetch_via_innertube(video_id: str) -> dict:
 
 def fetch_metadata(url: str) -> dict:
     last_error: Exception | None = None
+    video_id = extract_video_id(url)
+
+    if video_id and os.environ.get("YOUTUBE_API_KEY", "").strip():
+        try:
+            return fetch_via_data_api(video_id)
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+
     try:
         return fetch_via_ytdlp(url)
     except Exception as exc:  # noqa: BLE001 — fall back when yt-dlp is bot-blocked
         last_error = exc
 
-    video_id = extract_video_id(url)
     if video_id:
         try:
             return fetch_via_innertube(video_id)
